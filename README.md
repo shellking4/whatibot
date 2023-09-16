@@ -23,4 +23,6 @@ That triggers the whatsapp web authentication and automatically update the Qr Co
 
 It is possible that the whatsapp web auth credentials which are stored in .wwebjs_auth get corrupted overtime, in which case you need to do the authentication process again(ie. steps 1, 2, 3)
 
+UPDATE: The step 2 can be done on the Qr Code page by clicking on the button that reads 'Get a new one'
+
 
