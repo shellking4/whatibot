@@ -2,12 +2,12 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { WhatsappService } from '../services/whatsapp.service';
 import { WhatsappMessagePayloadDto } from '../dtos/request.dto';
 
-@Controller()
+@Controller('whatsapp')
 export class WhatsappController {
   constructor(private readonly whatsappService: WhatsappService) {}
 
-  @Post('whatsapp-message')
-  async createTool(@Body() body: WhatsappMessagePayloadDto): Promise<WhatsappMessagePayloadDto> {
+  @Post('send-message')
+  async sendMessage(@Body() body: WhatsappMessagePayloadDto): Promise<WhatsappMessagePayloadDto> {
     return await this.whatsappService.sendWhatsappMessage(body);
   }
 
