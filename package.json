@@ -37,6 +37,7 @@
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.2",
+    "uuid": "^9.0.1",
     "uuidv4": "^6.2.13",
     "whatsapp-web.js": "https://github.com/Julzk/whatsapp-web.js/tarball/jkr_hotfix_7",
     "winston": "^3.10.0"

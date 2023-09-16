@@ -9,7 +9,7 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { LoggingService } from './logging-service';
 import { getErrorStatus } from './constants';
-import { uuid } from 'uuidv4';
+import { v4 } from 'uuid';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -27,7 +27,7 @@ export class LoggingInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const userAgent = request.get('user-agent') || '';
     const { ip: clientIp, method, path: url } = request;
-    const correlationKey = uuid();
+    const correlationKey = v4();
     const userId = request.user?.userId;
 
     const now = Date.now();
