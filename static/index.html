@@ -1,20 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Whatsapp QR Code</title>
     <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.17/vue.js"></script>
     <script src="https://unpkg.com/@chenfengyuan/vue-qrcode@1.0.1/dist/vue-qrcode.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>Vue.component(VueQrcode.name, VueQrcode);</script>
-    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js" integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+" crossorigin="anonymous"></script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+        integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+        crossorigin="anonymous"></script>
 </head>
+
 <body>
     <div id="v-app">
         <h1 class="text-center text-5xl mt-8 mb-2">Your Whatsapp QR Code</h1>
         <div class="grid h-screen place-items-center">
+            <button @click="getNewQrCode()"
+                class="bg-transparent hover:bg-blue-500 text-blue-700 font-semibold hover:text-white py-2 px-4 border border-blue-500 hover:border-transparent rounded">
+                Get a new one
+            </button>
             <qrcode :value="qrcode" :options="{ width: 700 }"></qrcode>
         </div>
     </div>
@@ -26,6 +34,18 @@
                 socket: null,
                 qrcode: null
             },
+            methods: {
+                getNewQrCode: async function (event) {
+                    await fetch('http://localhost:3000/whatsapp/init-client', {
+                        method: "GET", 
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": "Basic UqhJeB_rsRlQmKgxl01AYi14lz7z4UNtd_t1EnQn0UEFZiCYERg-AOv1f5EsprVH1iYzKTjzEVSqqQlm0JtQ4ezvlYP6MuL8C6GELj-Duwe_7ghy9qj_z9STAD5LTwGRt5oGzA"
+                        }
+                    });
+                    return;
+                }
+            },
             created() {
                 this.socket = io('http://localhost:3000');
                 this.socket.on('qrcode', (qrcode) => {
@@ -35,4 +55,5 @@
         });
     </script>
 </body>
+
 </html>
