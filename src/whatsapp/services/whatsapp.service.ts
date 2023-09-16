@@ -105,11 +105,9 @@ export class WhatsappService {
 
 
     async sendWhatsappMessage(messagePayload: WhatsappMessagePayloadDto) {
-        let clientState: WAState = await this.wwjsClient.getState();
-        console.log(clientState);
         const chatId = (await this.wwjsClient.getNumberId(messagePayload.phoneNumber))?._serialized!;
         await this.wwjsClient.sendMessage(chatId, messagePayload.message);
-        return messagePayload;
+        return;
     }
 
     

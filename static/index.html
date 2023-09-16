@@ -13,7 +13,8 @@
 </head>
 <body>
     <div id="v-app">
-        <div class="mx-auto">
+        <h1 class="text-center text-5xl mt-8 mb-2">Your Whatsapp QR Code</h1>
+        <div class="grid h-screen place-items-center">
             <qrcode :value="qrcode" :options="{ width: 700 }"></qrcode>
         </div>
     </div>
@@ -26,9 +27,8 @@
                 qrcode: null
             },
             created() {
-                this.socket = io('https://whatibot.hop.sh');
+                this.socket = io('http://localhost:3000');
                 this.socket.on('qrcode', (qrcode) => {
-                    console.log(qrcode)
                     this.qrcode = qrcode
                 })
             }

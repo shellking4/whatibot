@@ -8,15 +8,14 @@ export class WhatsappController {
 
   @Post('send-message')
   async sendMessage(@Body() body: WhatsappMessagePayloadDto): Promise<WhatsappMessagePayloadDto> {
-    return await this.whatsappService.sendWhatsappMessage(body);
+    await this.whatsappService.sendWhatsappMessage(body);
+    return body;
   }
 
-  @Get('send-message')
-  async getMessage(): Promise<WhatsappMessagePayloadDto> {
-    return {
-      phoneNumber: "62798845",
-      message: "Hello"
-    };
+  @Get('init-client')
+  async getMessage(): Promise<any> {
+    await this.whatsappService.initializeWWJSClient();
+    return;
   }
 
 
