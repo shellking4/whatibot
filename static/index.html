@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.17/vue.js"></script>
+    <script src="https://unpkg.com/@chenfengyuan/vue-qrcode@1.0.1/dist/vue-qrcode.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>Vue.component(VueQrcode.name, VueQrcode);</script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js" integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="v-app">
+        <div class="mx-auto">
+            <qrcode :value="qrcode" :options="{ width: 700 }"></qrcode>
+        </div>
+    </div>
+    <script>
+        var app = new Vue({
+            el: "#v-app",
+            data: {
+                title: 'Whatsapp QR Code',
+                socket: null,
+                qrcode: null
+            },
+            created() {
+                this.socket = io('http://localhost:3000');
+                this.socket.on('qrcode', (qrcode) => {
+                    console.log(qrcode)
+                    this.qrcode = qrcode
+                })
+            }
+        });
+    </script>
+</body>
+</html>
