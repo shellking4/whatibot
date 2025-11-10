@@ -1,24 +1,13 @@
 import { WinstonModule } from "nest-winston";
 import { format, transports } from "winston";
-import { loggingService } from "./logging-service";
 
 const writeLog = (writeParams: { 
   level: 'info' | 'warning' | 'error', 
   log: any,
   persist: boolean
 }) => {
-  let level = writeParams.level;
   let log = writeParams.log;
-  let persist = writeParams.persist;
   const logContent = `[Nest] 5277 - ${log.timestamp} : ${log.context} : ${log.level} : ${log.message} : ${log.stack}`
-  if (persist) {
-    loggingService.writeLog({
-      level: level,
-      content: logContent
-    }).catch(error => {
-      console.log(error);
-    });
-  }
   return logContent;
 }
 

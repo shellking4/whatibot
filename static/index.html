@@ -36,7 +36,7 @@
             },
             methods: {
                 getNewQrCode: async function (event) {
-                    await fetch('http://localhost:3000/whatsapp/init-client', {
+                    await fetch('/whatsapp/init-client', {
                         method: "GET", 
                         headers: {
                             "Content-Type": "application/json",
@@ -47,7 +47,7 @@
                 }
             },
             created() {
-                this.socket = io('http://localhost:3000');
+                this.socket = io('/');
                 this.socket.on('qrcode', (qrcode) => {
                     this.qrcode = qrcode
                 })

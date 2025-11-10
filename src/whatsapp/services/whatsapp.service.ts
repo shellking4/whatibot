@@ -1,7 +1,7 @@
 import { pocketbase } from '../commons/rest-config';
 import { RecordModel } from 'pocketbase';
 import { WhatsappMessagePayloadDto } from '../dtos/request.dto';
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import {
     WebSocketGateway,
     WebSocketServer,
@@ -10,8 +10,6 @@ import { Server } from "socket.io";
 
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
-
-
 
 @WebSocketGateway({ cors: true })
 export class WhatsappService {
@@ -54,17 +52,27 @@ export class WhatsappService {
     }
 
     initializeWWJSClient() {
+        console.log("INITIALIZING WWJS CLIENT")
+        
         const client = new Client({
             puppeteer: {
-                headless: true,
-                args: ['--no-sandbox'],
+                headless: false,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ],
             },
             authStrategy: new LocalAuth({
                 clientId: 'donald1234'
             }),
             restartOnAuthFail: true,
         });
-        
+
         client.initialize();
     
         client.on('qr', qr => {
@@ -98,9 +106,19 @@ export class WhatsappService {
 
 
     async sendWhatsappMessage(messagePayload: WhatsappMessagePayloadDto) {
-        const chatId = (await this.wwjsClient.getNumberId(messagePayload.phoneNumber))?._serialized!;
-        await this.wwjsClient.sendMessage(chatId, messagePayload.message);
-        return;
+        try {
+            const phoneNumber = messagePayload.phoneNumber.replace('+', '').replace(/\s+/g, '');
+            const chatId = (await this.wwjsClient.getNumberId(phoneNumber))?._serialized!;
+            await this.wwjsClient.sendMessage(chatId, messagePayload.message);
+            return {
+                message: messagePayload.message,
+                phoneNumber: messagePayload.phoneNumber,
+                success: true
+            }
+        } catch (error) {
+            console.log("error", error)
+            throw new BadRequestException('Failed to send WhatsApp message', error);
+        }
     }
 
 

@@ -8,7 +8,7 @@ RUN apt-get install -y gconf-service libgbm-dev libasound2 libatk1.0-0 libc6 lib
 # Update and install required dependencies
 RUN apt-get update && \
     apt-get install -y curl && \
-    curl -sL https://deb.nodesource.com/setup_14.x | bash - && \
+    curl -sL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean
 
@@ -17,10 +17,13 @@ RUN npm install -g pnpm
 WORKDIR /whatibot
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN npm install
 
 COPY . .
-RUN pnpm build
+COPY ./.wwebjs_auth ./wwebjs_auth
+COPY ./.wwebjs_cache ./wwebjs_cache
 
-EXPOSE 3000
+RUN npm build
+
+EXPOSE 3009
 CMD ["node", "dist/main.js"]

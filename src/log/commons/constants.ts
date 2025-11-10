@@ -1,13 +1,7 @@
-import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import * as Database from 'better-sqlite3';
 import { BadRequestException, HttpException, HttpStatus, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 
 export const PG_CONNECTION = 'PG_CONNECTION';
-
-const sqlite = new Database('src/log/commons/logs.db');
-sqlite.pragma('journal_mode = WAL');
-export const db: BetterSQLite3Database = drizzle(sqlite);
 
 
 export const getErrorStatus = (exception: any) => {
