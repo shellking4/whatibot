@@ -56,7 +56,7 @@ export class WhatsappService {
         
         const client = new Client({
             puppeteer: {
-                headless: false,
+                headless: true,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',

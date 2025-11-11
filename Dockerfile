@@ -23,7 +23,7 @@ COPY . .
 COPY ./.wwebjs_auth ./wwebjs_auth
 COPY ./.wwebjs_cache ./wwebjs_cache
 
-RUN npm build
+RUN npm run build
 
 EXPOSE 3009
 CMD ["node", "dist/main.js"]
