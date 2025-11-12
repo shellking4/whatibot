@@ -45,7 +45,7 @@ export class IsPhoneNumberWithCountryCodeConstraint implements ValidatorConstrai
   }
 
   defaultMessage(args: ValidationArguments) {
-    return 'Le numéro de téléphone doit être au format international avec le code pays (ex: +229XXXXXXXXXX)';
+    return 'Le numéro de téléphone doit être au format international avec le code pays (ex: +229 XX XX XX XX XX)';
   }
 }
 
