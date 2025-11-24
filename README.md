@@ -26,3 +26,27 @@ It is possible that the whatsapp web auth credentials which are stored in .wwebj
 UPDATE: The step 2 can be done on the Qr Code page by clicking on the button that reads 'Get a new one'
 
 
+If for some reason you cannot authenticate as described above, you can run the project locally and use headless false in the client
+
+const client = new Client({
+    puppeteer: {
+        headless: false,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ],
+    },
+    authStrategy: new LocalAuth({
+        clientId: 'donald1234'
+    }),
+    restartOnAuthFail: true,
+});
+
+This will allow to launch the chromium browser manually and authenticate manually with your whatsapp account on your phone. Once this is done the .wwebjs_auth file will be created or updated in the root of the project and you can use the same steps as described above to authenticate to your account.
+
+You can then build a new docker image you can use as is to deploy the bot to a server.
