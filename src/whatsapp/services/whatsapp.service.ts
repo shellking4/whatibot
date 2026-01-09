@@ -7,9 +7,11 @@ import {
     WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from "socket.io";
+import { RemoteAuth } from 'whatsapp-web.js';
+import { store } from '../commons/wwebjs-aws-s3-auth-store';
 
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client } = require('whatsapp-web.js');
 
 @WebSocketGateway({ cors: true })
 export class WhatsappService {
@@ -67,8 +69,11 @@ export class WhatsappService {
                     '--disable-gpu'
                 ],
             },
-            authStrategy: new LocalAuth({
-                clientId: 'donald1234'
+            authStrategy: new RemoteAuth({
+                clientId: 'whatibot',
+                dataPath: '.wwebjs_auth',
+                store: store,
+                backupSyncIntervalMs: 600000
             }),
             restartOnAuthFail: true,
         });

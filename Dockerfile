@@ -20,8 +20,6 @@ COPY package.json pnpm-lock.yaml ./
 RUN npm install
 
 COPY . .
-COPY ./.wwebjs_auth ./wwebjs_auth
-COPY ./.wwebjs_cache ./wwebjs_cache
 
 RUN npm run build
 
