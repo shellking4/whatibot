@@ -172,7 +172,7 @@ jobs:
       # ============================================
       - name: Save public URL
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: public-url
           path: public_url.txt
