@@ -1,0 +1,179 @@
+# .github/workflows/deploy.yml
+name: Deploy Docker Container
+
+on:
+  workflow_dispatch:  # Manual trigger via Actions tab
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '*/20 * * * *'  # Restart every 20 minutes to stay alive
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # Just under 6 hour limit
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v2
+      
+      # ============================================
+      # Pull your pre-built Docker image
+      # ============================================
+      - name: Pull Docker image
+        run: |
+          echo "🐳 Pulling your Docker image..."
+          docker pull shellking4/whatibot
+          
+          # Verify image was pulled
+          docker images
+      
+      # ============================================
+      # Install Cloudflare Tunnel for public access
+      # ============================================
+      - name: Install Cloudflare Tunnel
+        run: |
+          echo "📡 Installing Cloudflare Tunnel..."
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          cloudflared --version
+      
+      # ============================================
+      # Start your Docker container
+      # ============================================
+      - name: Start Docker container
+        run: |
+          echo "🚀 Starting your container..."
+          
+          # Run container in detached mode
+          docker run -d \
+            --name myapp \
+            --restart unless-stopped \
+            -p 8080:8080 \
+            shellking4/whatibot
+          
+          # Wait for container to be ready
+          echo "⏳ Waiting for container to start..."
+          sleep 10
+          
+          # Check container status
+          docker ps
+          echo ""
+          echo "✅ Container started successfully!"
+      
+      # ============================================
+      # Expose container via Cloudflare Tunnel
+      # ============================================
+      - name: Create public tunnel
+        run: |
+          echo "🌐 Creating public tunnel..."
+          
+          # Start cloudflare tunnel in background
+          cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+          
+          # Wait for tunnel to establish
+          sleep 8
+          
+          # Extract the public URL
+          TUNNEL_URL=$(grep -o 'https://[^[:space:]]*\.trycloudflare\.com' tunnel.log | head -1)
+          
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Failed to create tunnel"
+            cat tunnel.log
+            exit 1
+          fi
+          
+          echo "======================================"
+          echo "🎉 Your app is LIVE at:"
+          echo "$TUNNEL_URL"
+          echo "======================================"
+          echo ""
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          
+          # Save URL to file for easy access
+          echo "$TUNNEL_URL" > public_url.txt
+      
+      # ============================================
+      # Health monitoring and keep-alive loop
+      # ============================================
+      - name: Monitor and keep alive
+        run: |
+          echo "👀 Starting health monitoring..."
+          echo "Container will run for ~5.5 hours, then auto-restart"
+          echo ""
+          
+          # Health check loop (330 minutes = 5.5 hours)
+          for minute in {1..330}; do
+            # Check if container is still running
+            if docker ps | grep -q myapp; then
+              # Get container stats
+              STATS=$(docker stats --no-stream --format "CPU: {{.CPUPerc}} | Memory: {{.MemUsage}}" myapp)
+              echo "[$(date +'%H:%M:%S')] Minute $minute/330 | $STATS | ✅ Running"
+            else
+              echo "[$(date +'%H:%M:%S')] ❌ Container died! Attempting restart..."
+              docker start myapp
+              
+              # Verify restart
+              sleep 5
+              if docker ps | grep -q myapp; then
+                echo "✅ Container restarted successfully"
+              else
+                echo "❌ Failed to restart container. Showing logs:"
+                docker logs myapp
+                exit 1
+              fi
+            fi
+            
+            # Sleep for 1 minute
+            sleep 60
+          done
+          
+          echo ""
+          echo "⏰ Approaching 6-hour limit. Workflow will end and auto-restart via cron."
+      
+      # ============================================
+      # Display logs and stats before shutdown
+      # ============================================
+      - name: Show final status
+        if: always()
+        run: |
+          echo "======================================"
+          echo "📊 Final Container Status"
+          echo "======================================"
+          
+          if docker ps -a | grep -q myapp; then
+            docker ps -a --filter "name=myapp"
+            echo ""
+            echo "📋 Container Logs (last 50 lines):"
+            echo "--------------------------------------"
+            docker logs --tail 50 myapp
+          else
+            echo "No container found"
+          fi
+      
+      # ============================================
+      # Cleanup
+      # ============================================
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Cleaning up..."
+          docker stop myapp 2>/dev/null || true
+          docker rm myapp 2>/dev/null || true
+          pkill cloudflared || true
+          echo "✅ Cleanup complete"
+      
+      # ============================================
+      # Upload the public URL as artifact
+      # ============================================
+      - name: Save public URL
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: public-url
+          path: public_url.txt
+          retention-days: 1
