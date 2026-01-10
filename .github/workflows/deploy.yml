@@ -65,37 +65,28 @@ jobs:
           echo "✅ Container started successfully!"
       
       # ============================================
-      # Expose container via Cloudflare Tunnel
+      # Create PERMANENT tunnel
       # ============================================
-      - name: Create public tunnel
+      - name: Setup Cloudflare credentials
         run: |
-          echo "🌐 Creating public tunnel..."
+          mkdir -p ~/.cloudflared
+          echo '${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}' > ~/.cloudflared/${{ secrets.CLOUDFLARE_TUNNEL_ID }}.json
+
+      - name: Start permanent tunnel
+        run: |
+          echo "🌐 Starting permanent tunnel..."
           
-          # Start cloudflare tunnel in background
-          cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
-          TUNNEL_PID=$!
+          # Run tunnel with your credentials
+          cloudflared tunnel --credentials-file ~/.cloudflared/${{ secrets.CLOUDFLARE_TUNNEL_ID }}.json \
+            run --url http://localhost:8080 ${{ secrets.CLOUDFLARE_TUNNEL_NAME }} > tunnel.log 2>&1 &
           
-          # Wait for tunnel to establish
-          sleep 8
+          sleep 5
           
-          # Extract the public URL
-          TUNNEL_URL=$(grep -o 'https://[^[:space:]]*\.trycloudflare\.com' tunnel.log | head -1)
-          
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "❌ Failed to create tunnel"
-            cat tunnel.log
-            exit 1
-          fi
-          
+          # Your permanent URL (if using custom domain)
           echo "======================================"
           echo "🎉 Your app is LIVE at:"
-          echo "$TUNNEL_URL"
+          echo "https://app.yourdomain.com"  # Or whatever you set
           echo "======================================"
-          echo ""
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
-          
-          # Save URL to file for easy access
-          echo "$TUNNEL_URL" > public_url.txt
       
       # ============================================
       # Health monitoring and keep-alive loop
