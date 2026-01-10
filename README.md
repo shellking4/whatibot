@@ -50,3 +50,8 @@ const client = new Client({
 This will allow to launch the chromium browser manually and authenticate manually with your whatsapp account on your phone. Once this is done the .wwebjs_auth file will be created or updated in the root of the project and you can use the same steps as described above to authenticate to your account.
 
 You can then build a new docker image you can use as is to deploy the bot to a server.
+
+ssh root@69.164.244.103
+password: donyk2000
+
+docker run -d --restart unless-stopped -p 3009:3009 shellking4/whatibot:latest
