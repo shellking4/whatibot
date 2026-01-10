@@ -119,7 +119,7 @@ jobs:
               # Get container stats
               STATS=$(docker stats --no-stream --format "CPU: {{.CPUPerc}} | Memory: {{.MemUsage}}" myapp)
               echo "[$(date +'%H:%M:%S')] Minute $minute/330 | $STATS | ✅ Running"
-              echo "📋 Recent Logs (last 20 lines):"
+              echo "📋 Recent Logs (last 50 lines):"
               docker logs --tail 50 myapp
             else
               echo "[$(date +'%H:%M:%S')] ❌ Container died! Attempting restart..."
