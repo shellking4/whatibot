@@ -65,28 +65,43 @@ jobs:
           echo "✅ Container started successfully!"
       
       # ============================================
-      # Create PERMANENT tunnel
+      # Expose container via Cloudflare Tunnel
       # ============================================
-      - name: Setup Cloudflare credentials
+      - name: Create public tunnel
         run: |
-          mkdir -p ~/.cloudflared
-          echo '${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}' > ~/.cloudflared/${{ secrets.CLOUDFLARE_TUNNEL_ID }}.json
-
-      - name: Start permanent tunnel
-        run: |
-          echo "🌐 Starting permanent tunnel..."
+          echo "🌐 Creating public tunnel..."
           
-          # Run tunnel with your credentials
-          cloudflared tunnel --credentials-file ~/.cloudflared/${{ secrets.CLOUDFLARE_TUNNEL_ID }}.json \
-            run --url http://localhost:8080 ${{ secrets.CLOUDFLARE_TUNNEL_NAME }} > tunnel.log 2>&1 &
+          # Start cloudflare tunnel in background
+          cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
           
-          sleep 5
+          # Wait for tunnel to establish
+          sleep 8
           
-          # Your permanent URL (if using custom domain)
+          # Extract the public URL
+          TUNNEL_URL=$(grep -o 'https://[^[:space:]]*\.trycloudflare\.com' tunnel.log | head -1)
+          
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Failed to create tunnel"
+            cat tunnel.log
+            exit 1
+          fi
+          
           echo "======================================"
           echo "🎉 Your app is LIVE at:"
-          echo "https://app.yourdomain.com"  # Or whatever you set
+          echo "$TUNNEL_URL"
           echo "======================================"
+          echo ""
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          
+          # Save URL to file for easy access
+          echo "$TUNNEL_URL" > public_url.txt
+
+          # Update remote variable with tunnel URL
+          echo "Updating remote variable..."
+          curl -X PATCH "https://aftgroup-website-backoffice.pockethost.io/api/collections/variables/records/z3xc7bjgfed7zl8" \
+            -H "Content-Type: application/json" \
+            -d "{\"value\": \"$TUNNEL_URL\"}"
       
       # ============================================
       # Health monitoring and keep-alive loop
