@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server } from "socket.io";
 import { RemoteAuth } from 'whatsapp-web.js';
-import { store } from '../commons/wwebjs-aws-s3-auth-store';
+import { store, WWEBJS_AUTH_DATA_PATH } from '../commons/wwebjs-aws-s3-auth-store';
 
 
 const { Client } = require('whatsapp-web.js');
@@ -72,14 +72,16 @@ export class WhatsappService {
             },
             authStrategy: new RemoteAuth({
                 clientId: 'whatibot',
-                dataPath: '.wwebjs_auth',
+                dataPath: WWEBJS_AUTH_DATA_PATH,
                 store: store,
                 backupSyncIntervalMs: 600000
             }),
             restartOnAuthFail: true,
         });
 
-        client.initialize();
+        client.initialize().catch(error => {
+            console.error('WWJS CLIENT INITIALIZATION FAILED', error);
+        });
     
         client.on('qr', qr => {
             console.log("QRCODE READY")
@@ -95,8 +97,21 @@ export class WhatsappService {
             console.log("READY");
             this.wwjsClient = client;
             // this.syncClientStateToPocketbase({ state: 'READY' });
-            const chatId = (await client.getNumberId("62798845"))?._serialized!
-            await this.wwjsClient.sendMessage(chatId, 'connected')
+            // RemoteAuth only uploads the session 60s after 'ready', so a throw here must not crash the process
+            try {
+                const chatId = (await client.getNumberId("62798845"))?._serialized;
+                if (chatId) {
+                    await client.sendMessage(chatId, 'connected');
+                } else {
+                    console.warn('CONNECTED NOTIFICATION SKIPPED: 62798845 is not a registered WhatsApp number');
+                }
+            } catch (error) {
+                console.error('CONNECTED NOTIFICATION FAILED', error);
+            }
+        });
+
+        client.on('remote_session_saved', () => {
+            console.log("REMOTE SESSION SAVED");
         });
     
         client.on('auth_failure', msg => {
