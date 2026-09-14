@@ -5,6 +5,12 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { BadRequestException, ValidationError, ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 
+// whatsapp-web.js fires some promises without handling them (e.g. RemoteAuth's session backups to R2).
+// On Node >= 15 one failed backup would otherwise kill the whole service.
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION', reason);
+});
+
 async function bootstrap() {
   const appOptions = {
     cors: true,

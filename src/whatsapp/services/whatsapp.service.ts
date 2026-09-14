@@ -7,14 +7,21 @@ import {
     WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from "socket.io";
-import { RemoteAuth } from 'whatsapp-web.js';
 import { store, WWEBJS_AUTH_DATA_PATH } from '../commons/wwebjs-aws-s3-auth-store';
+import { SafeRemoteAuth } from '../commons/safe-remote-auth';
 
 
 const { Client, WAState } = require('whatsapp-web.js');
 
 const SEND_MESSAGE_TIMEOUT_MS = 25000;
-const WATCHDOG_INTERVAL_MS = 300000;
+const DESTROY_TIMEOUT_MS = 15000;
+const WATCHDOG_INTERVAL_MS = 60000;
+// A socket can report CONNECTED while requests to WhatsApp hang, so every few ticks the watchdog does a real lookup
+const WATCHDOG_ROUND_TRIP_EVERY_TICKS = 5;
+// Consecutive failed health checks or sends before the client is restarted
+const MAX_CONSECUTIVE_FAILURES = 3;
+// A client that is neither ready nor showing a QR code after this long is restarted
+const STARTUP_GRACE_MS = 300000;
 const RECONNECT_BASE_DELAY_MS = 5000;
 const RECONNECT_MAX_DELAY_MS = 60000;
 const READY_STATES = [
@@ -23,6 +30,7 @@ const READY_STATES = [
     WAState.PAIRING,
     WAState.TIMEOUT,
 ];
+const LOGGED_OUT_STATES = [WAState.UNPAIRED, WAState.UNPAIRED_IDLE];
 
 @WebSocketGateway({ cors: true })
 export class WhatsappService {
@@ -35,10 +43,13 @@ export class WhatsappService {
     private logger: Logger = new Logger()
 
     private currentClient: any = null;
+    private clientStartedAt = 0;
+    private initializing: Promise<any> | null = null;
     private reconnectTimer: NodeJS.Timeout | null = null;
     private reconnectAttempts = 0;
     private watchdogInterval: NodeJS.Timeout | null = null;
-    private destroying = false;
+    private watchdogTicks = 0;
+    private consecutiveFailures = 0;
 
     afterInit() {
         this.logger.log("Subscriptions WebSocketGateway Initialized")
@@ -70,11 +81,17 @@ export class WhatsappService {
         return clientStateTracker;
     }
 
-    async initializeWWJSClient() {
-        if (this.destroying) {
-            console.log("WWJS CLIENT: teardown in progress, skipping re-init")
-            return;
+    // Serialized so two clients never run on the same session folder at once
+    initializeWWJSClient(): Promise<any> {
+        if (!this.initializing) {
+            this.initializing = this.createClient().finally(() => {
+                this.initializing = null;
+            });
         }
+        return this.initializing;
+    }
+
+    private async createClient() {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
@@ -83,54 +100,50 @@ export class WhatsappService {
         await this.destroyCurrentClient();
 
         console.log("INITIALIZING WWJS CLIENT")
-        
+
         const client = new Client({
             puppeteer: {
                 headless: true,
+                // no --single-process / --no-zygote: in single-process mode one hung renderer freezes the whole browser
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
                     '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
                     '--disable-gpu'
                 ],
             },
-            authStrategy: new RemoteAuth({
+            authStrategy: new SafeRemoteAuth({
                 clientId: 'whatibot',
                 dataPath: WWEBJS_AUTH_DATA_PATH,
                 store: store,
                 backupSyncIntervalMs: 600000
             }),
             takeoverOnConflict: true,
-            restartOnAuthFail: true,
         });
 
         this.currentClient = client;
         this.wwjsClient = null;
+        this.clientStartedAt = Date.now();
+        this.consecutiveFailures = 0;
 
-        client.initialize().catch(error => {
-            console.error('WWJS CLIENT INITIALIZATION FAILED', error);
-            if (this.currentClient === client) this.currentClient = null;
-            this.scheduleReconnect(`client.initialize failed: ${error.message}`);
-        });
-    
         client.on('qr', qr => {
             console.log("QRCODE READY")
-            // qrcode.generate(qr, { small: true });
-            this.websocketServer.emit('qrcode', qr);
+            this.clientStartedAt = Date.now();
+            this.websocketServer?.emit('qrcode', qr);
         });
-    
+
         client.on('authenticated', () => {
             console.log("AUTHENTICATED")
+            this.clientStartedAt = Date.now();
         });
 
         client.on('ready', async () => {
             console.log("READY");
             this.wwjsClient = client;
             this.reconnectAttempts = 0;
+            this.consecutiveFailures = 0;
             // this.syncClientStateToPocketbase({ state: 'READY' });
             // RemoteAuth only uploads the session 60s after 'ready', so a throw here must not crash the process
             try {
@@ -145,23 +158,30 @@ export class WhatsappService {
             }
         });
 
+        client.on('change_state', state => {
+            console.log('WWJS STATE', state);
+        });
+
         client.on('remote_session_saved', () => {
             console.log("REMOTE SESSION SAVED");
         });
-    
+
         client.on('auth_failure', msg => {
             console.error('AUTHENTICATION FAILURE', msg);
-            this.scheduleReconnect(`auth_failure: ${msg}`);
         });
-    
+
         client.on('disconnected', (reason) => {
             console.log('DISCONNECTED', reason);
-            if (this.currentClient === client) this.currentClient = null;
-            this.scheduleReconnect(`disconnected: ${reason}`);
+            if (this.currentClient === client) this.scheduleReconnect(`disconnected: ${reason}`);
         });
 
         this.ensureWatchdog();
-        
+
+        client.initialize().catch(error => {
+            console.error('WWJS CLIENT INITIALIZATION FAILED', error);
+            if (this.currentClient === client) this.scheduleReconnect(`client.initialize failed: ${error?.message}`);
+        });
+
         return client;
     }
 
@@ -171,13 +191,16 @@ export class WhatsappService {
         this.wwjsClient = null;
         if (!client) return;
 
-        this.destroying = true;
         try {
-            await this.withTimeout(client.destroy(), 15000, 'client.destroy');
+            await this.withTimeout(client.destroy(), DESTROY_TIMEOUT_MS, 'client.destroy');
         } catch (error) {
-            console.error('WWJS CLIENT: destroy failed', error.message);
-        } finally {
-            this.destroying = false;
+            // A frozen Chrome never answers browser.close(); kill it so it can't keep the session folder busy
+            console.error('WWJS CLIENT: destroy failed, killing browser', error?.message);
+            try {
+                client.pupBrowser?.process()?.kill('SIGKILL');
+            } catch (killError) {
+                console.error('WWJS CLIENT: could not kill browser', killError?.message);
+            }
         }
     }
 
@@ -193,34 +216,74 @@ export class WhatsappService {
         }, delay);
     }
 
+    private recordFailure(client: any, reason: string) {
+        if (this.currentClient !== client) return;
+        this.consecutiveFailures++;
+        console.warn(`WWJS HEALTH: ${reason} (${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
+        if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            this.consecutiveFailures = 0;
+            this.scheduleReconnect(`unresponsive client: ${reason}`);
+        }
+    }
+
     private ensureWatchdog() {
         if (this.watchdogInterval) return;
         this.watchdogInterval = setInterval(() => {
-            this.checkClientHealth();
+            this.checkClientHealth().catch(error => {
+                console.error('WATCHDOG: health check crashed', error);
+            });
         }, WATCHDOG_INTERVAL_MS);
     }
 
     private async checkClientHealth() {
+        if (this.initializing || this.reconnectTimer) return; // recovery already under way
+
         const client = this.currentClient;
-        if (!client || client !== this.currentClient) return;
+        if (!client) {
+            this.scheduleReconnect('watchdog: no WhatsApp client running');
+            return;
+        }
+        const isReady = this.wwjsClient === client;
+        const startupExpired = Date.now() - this.clientStartedAt > STARTUP_GRACE_MS;
 
         let state: string | null = null;
         try {
             state = await this.withTimeout(client.getState(), SEND_MESSAGE_TIMEOUT_MS, 'watchdog getState');
         } catch (error) {
-            if (this.currentClient !== client) return;
-            console.error('WATCHDOG: state check failed, client is stuck', error.message);
-            this.scheduleReconnect(`watchdog: state check failed (${error.message})`);
+            // Before the page exists getState throws; that's only a problem once startup should be over
+            if (isReady || startupExpired) this.recordFailure(client, `state check failed (${error?.message})`);
             return;
         }
-        if (!state || this.currentClient !== client) return; // still starting up, waiting for a QR scan, or replaced
+        if (this.currentClient !== client) return;
 
-        const stuck = !READY_STATES.includes(state) &&
-            state !== WAState.UNPAIRED &&
-            state !== WAState.UNPAIRED_IDLE;
-        if (stuck) {
-            console.warn(`WATCHDOG: client stuck in ${state}, reconnecting`);
-            this.scheduleReconnect(`watchdog: client state ${state}`);
+        if (LOGGED_OUT_STATES.includes(state)) {
+            // Session expired or device unlinked: the QR code is up, only a scan can fix this
+            this.clientStartedAt = Date.now();
+            this.consecutiveFailures = 0;
+            return;
+        }
+
+        if (!isReady) {
+            if (startupExpired) {
+                this.scheduleReconnect(`watchdog: client not ready after ${STARTUP_GRACE_MS / 1000}s (state ${state})`);
+            }
+            return;
+        }
+
+        if (state !== WAState.CONNECTED) {
+            this.recordFailure(client, `state is ${state}`);
+            return;
+        }
+
+        const ownNumber = client.info?.wid?.server === 'c.us' ? client.info.wid.user : null;
+        const probe = this.consecutiveFailures > 0 || ++this.watchdogTicks % WATCHDOG_ROUND_TRIP_EVERY_TICKS === 0;
+        if (!probe || !ownNumber) return;
+
+        try {
+            await this.withTimeout(client.getNumberId(ownNumber), SEND_MESSAGE_TIMEOUT_MS, 'watchdog round trip');
+            this.consecutiveFailures = 0;
+        } catch (error) {
+            this.recordFailure(client, `round trip to WhatsApp failed (${error?.message})`);
         }
     }
 
@@ -253,6 +316,7 @@ export class WhatsappService {
             }
         } catch (error) {
             if (error instanceof BadRequestException) throw error;
+            this.recordFailure(client, `send: getState failed (${error.message})`);
             throw new BadRequestException(`Failed to check WhatsApp client state: ${error.message}`);
         }
 
@@ -267,6 +331,7 @@ export class WhatsappService {
             );
             chatId = numberId?._serialized;
         } catch (error) {
+            this.recordFailure(client, `send: getNumberId failed (${error.message})`);
             throw new BadRequestException(`Could not resolve phone number ${messagePayload.phoneNumber}: ${error.message}`);
         }
         if (!chatId) {
@@ -279,6 +344,7 @@ export class WhatsappService {
                 SEND_MESSAGE_TIMEOUT_MS,
                 'sendMessage',
             );
+            this.consecutiveFailures = 0;
             return {
                 message: messagePayload.message,
                 phoneNumber: messagePayload.phoneNumber,
@@ -286,6 +352,7 @@ export class WhatsappService {
             }
         } catch (error) {
             console.error('Failed to send WhatsApp message', error);
+            this.recordFailure(client, `send: sendMessage failed (${error.message})`);
             throw new BadRequestException(`Failed to send WhatsApp message: ${error.message}`);
         }
     }
