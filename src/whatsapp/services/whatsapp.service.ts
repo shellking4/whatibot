@@ -24,6 +24,10 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const STARTUP_GRACE_MS = 300000;
 const RECONNECT_BASE_DELAY_MS = 5000;
 const RECONNECT_MAX_DELAY_MS = 60000;
+// When WhatsApp Web reloads its tab, window.WWebJS (used by sendMessage) is gone until the library re-injects it
+const INJECTED_UTILS_WAIT_MS = 30000;
+const INJECTED_UTILS_POLL_MS = 500;
+const INJECTED_UTILS_MISSING = /Cannot read properties of undefined \(reading '(getChat|sendSeen|sendMessage)'\)/;
 const READY_STATES = [
     WAState.CONNECTED,
     WAState.OPENING,
@@ -281,10 +285,38 @@ export class WhatsappService {
 
         try {
             await this.withTimeout(client.getNumberId(ownNumber), SEND_MESSAGE_TIMEOUT_MS, 'watchdog round trip');
-            this.consecutiveFailures = 0;
         } catch (error) {
             this.recordFailure(client, `round trip to WhatsApp failed (${error?.message})`);
+            return;
         }
+        // If re-injection failed after a page reload, sends keep failing until the client is restarted
+        if (!(await this.hasInjectedUtils(client))) {
+            this.recordFailure(client, 'WhatsApp Web helpers (window.WWebJS) missing');
+            return;
+        }
+        this.consecutiveFailures = 0;
+    }
+
+    private async hasInjectedUtils(client: any): Promise<boolean> {
+        try {
+            return await this.withTimeout<boolean>(
+                client.pupPage.evaluate('typeof window.WWebJS?.getChat === "function"'),
+                SEND_MESSAGE_TIMEOUT_MS,
+                'WWebJS check',
+            );
+        } catch {
+            // "Execution context was destroyed" while the page is navigating
+            return false;
+        }
+    }
+
+    private async waitForInjectedUtils(client: any, timeoutMs: number): Promise<boolean> {
+        const deadline = Date.now() + timeoutMs;
+        while (!(await this.hasInjectedUtils(client))) {
+            if (Date.now() >= deadline || this.currentClient !== client) return false;
+            await new Promise(resolve => setTimeout(resolve, INJECTED_UTILS_POLL_MS));
+        }
+        return true;
     }
 
 
@@ -320,6 +352,11 @@ export class WhatsappService {
             throw new BadRequestException(`Failed to check WhatsApp client state: ${error.message}`);
         }
 
+        if (!(await this.waitForInjectedUtils(client, INJECTED_UTILS_WAIT_MS))) {
+            this.recordFailure(client, 'send: WhatsApp Web helpers (window.WWebJS) missing');
+            throw new BadRequestException('WhatsApp Web is reloading, please retry shortly');
+        }
+
         const phoneNumber = messagePayload.phoneNumber.replace('+', '').replace(/\s+/g, '');
 
         let chatId: string | undefined;
@@ -338,12 +375,22 @@ export class WhatsappService {
             throw new BadRequestException(`Phone number ${messagePayload.phoneNumber} is not registered on WhatsApp`);
         }
 
+        const send = () => this.withTimeout(
+            client.sendMessage(chatId, messagePayload.message),
+            SEND_MESSAGE_TIMEOUT_MS,
+            'sendMessage',
+        );
+
         try {
-            await this.withTimeout(
-                client.sendMessage(chatId, messagePayload.message),
-                SEND_MESSAGE_TIMEOUT_MS,
-                'sendMessage',
-            );
+            try {
+                await send();
+            } catch (error) {
+                // The page reloaded between the check and the send; nothing was sent, so retrying once is safe
+                if (!INJECTED_UTILS_MISSING.test(error?.message ?? '')) throw error;
+                console.warn('WWJS: page reloaded during send, waiting for helpers and retrying once');
+                if (!(await this.waitForInjectedUtils(client, INJECTED_UTILS_WAIT_MS))) throw error;
+                await send();
+            }
             this.consecutiveFailures = 0;
             return {
                 message: messagePayload.message,
